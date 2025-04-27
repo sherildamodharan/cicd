@@ -3,6 +3,7 @@ pipeline {
     docker {
       image 'sandams/maven-docker-agent:v1'
       args '--user root -v /var/run/docker.sock:/var/run/docker.sock'
+      reuseNode true // Keeps workspace accessible after container exits
     }
   }
 
@@ -17,20 +18,19 @@ pipeline {
   stages {
     stage('Verify Setup') {
       steps {
-        script {
-          sh 'echo "Java version:" && java -version'
-          sh 'echo "Maven version:" && mvn --version'
-          sh 'echo "Docker version:" && docker --version'
-          sh 'echo "SonarQube reachability:" && curl -I ${SONAR_URL} || true'
-        }
+        sh 'echo "Java version: $(java -version 2>&1)"'
+        sh 'mvn --version'
+        sh 'docker --version'
       }
     }
 
     stage('Checkout') {
       steps {
-        git branch: 'main', 
-        url: "https://github.com/${GIT_USER_NAME}/${GIT_REPO_NAME}.git",
-        credentialsId: 'github' // Make sure you have this credential setup
+        git(
+          branch: 'main',
+          url: "https://github.com/${GIT_USER_NAME}/${GIT_REPO_NAME}.git",
+          credentialsId: 'github' // Make sure this credential exists
+        )
       }
     }
 
@@ -48,11 +48,9 @@ pipeline {
         withCredentials([string(credentialsId: 'sonarqube', variable: 'SONAR_TOKEN')]) {
           dir("${APP_PATH}") {
             sh """
-              echo "SonarQube Token: ${SONAR_TOKEN? 'SET' : 'MISSING'}"
               mvn sonar:sonar \
                 -Dsonar.login=${SONAR_TOKEN} \
-                -Dsonar.host.url=${SONAR_URL} \
-                -Dsonar.verbose=true
+                -Dsonar.host.url=${SONAR_URL}
             """
           }
         }
@@ -68,20 +66,9 @@ pipeline {
         )]) {
           dir("${APP_PATH}") {
             sh """
-              echo "Building Docker image..."
               docker build -t ${DOCKER_IMAGE} .
-              
-              echo "Logging in to Docker Hub..."
               echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin
-              
-              echo "Pushing image..."
-              docker push ${DOCKER_IMAGE} || {
-                echo "Push failed, retrying..."
-                sleep 5
-                docker push ${DOCKER_IMAGE}
-              }
-              
-              echo "Image pushed successfully: ${DOCKER_IMAGE}"
+              docker push ${DOCKER_IMAGE}
             """
           }
         }
@@ -95,16 +82,9 @@ pipeline {
             sh """
               git config --global user.email "sherildamodharan@gmail.com"
               git config --global user.name "Sheril Damodharan"
-              
-              echo "Updating deployment to version ${BUILD_NUMBER}"
               sed -i "s/replaceImageTag/${BUILD_NUMBER}/g" deployment.yml
-              
-              git status
-              git diff
-              
               git add deployment.yml
               git commit -m "Update to ${DOCKER_IMAGE}" || echo "No changes to commit"
-              
               git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME}.git HEAD:main
             """
           }
@@ -115,18 +95,21 @@ pipeline {
 
   post {
     always {
-      echo "Pipeline completed - collecting diagnostic info"
-      sh 'docker images | grep sandams/spring-app'
-      sh 'curl -I ${SONAR_URL} || true'
-      cleanWs()
+      script {
+        // Run cleanup on master node explicitly
+        node('master') {
+          cleanWs()
+          sh 'docker images | grep sandams/spring-app || true'
+        }
+      }
     }
     success {
       echo '✅ Pipeline succeeded'
-      slackSend(color: 'good', message: "Pipeline succeeded: ${env.JOB_NAME} #${env.BUILD_NUMBER}")
+      // Removed slackSend since plugin isn't installed
     }
     failure {
       echo '❌ Pipeline failed'
-      slackSend(color: 'danger', message: "Pipeline failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}")
+      // Removed slackSend since plugin isn't installed
     }
   }
 }
