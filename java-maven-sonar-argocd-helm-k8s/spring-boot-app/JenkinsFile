@@ -3,6 +3,7 @@ pipeline {
     docker {
       image 'sandams/maven-docker-agent:v1'
       args '--user root -v /var/run/docker.sock:/var/run/docker.sock'
+      reuseNode true  // Important for workspace cleanup
     }
   }
 
@@ -96,7 +97,12 @@ pipeline {
 
   post {
     always {
-      cleanWs()  // Simplified version without node
+      script {
+        // Cleanup on the main node, not inside the Docker container
+        node('master') {
+          cleanWs()
+        }
+      }
     }
     success {
       echo 'Pipeline completed successfully ✅'
