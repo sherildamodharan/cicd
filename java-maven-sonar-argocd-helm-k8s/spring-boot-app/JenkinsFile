@@ -96,9 +96,7 @@ pipeline {
 
   post {
     always {
-      node {
-        cleanWs()
-      }
+      cleanWs()  // Simplified version without node
     }
     success {
       echo 'Pipeline completed successfully ✅'
