@@ -83,7 +83,8 @@ pipeline {
             sed -i.bak "s/replaceImageTag/${BUILD_NUMBER}/g" deployment.yml
             git add deployment.yml
             git commit -m "Update deployment image to version ${BUILD_NUMBER}" || echo "No changes to commit"
-            '''
+            rm -f *.bak
+          '''
           retry(3) {
             sh '''
               git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME}.git HEAD:main
@@ -96,15 +97,15 @@ pipeline {
 
   post {
     always {
-        node {
-            cleanWs()
-        }
+      node {
+        cleanWs()
+      }
     }
     success {
-        echo 'Pipeline completed successfully ✅'
+      echo 'Pipeline completed successfully ✅'
     }
     failure {
-        echo 'Pipeline failed ❌'
+      echo 'Pipeline failed ❌'
     }
-}
+  }
 }
